@@ -1,3 +1,29 @@
+local logger = {}
+function logger.FATA(e)
+  term.write("FATA", "red")
+  print(e)
+end
+function logger.NOTI(e)
+  term.write("NOTI", "cyan")
+  print(e)
+end
+function logger.WARN(e)
+  term.write("WARN", "orange")
+  print(e)
+end
+function logger.success(e)
+  write('[')
+  term.write(" /", "green")
+  write(']')
+  print(e)
+end
+function logger.fail(e)
+  write('[')
+  term.write("X ", "red")
+  write(']')
+  print(e)
+end
+
  --[[
  Utilize the ccdocker library!
 
@@ -10,8 +36,8 @@
 local Args = {...}
 
 -- config
--- MUST BE x.x.x.x or mydomain.com or x.x.x.x:port etc
-local server = "ccdocker.tritonjs.com"
+local server = "ccdockerd--discordbotdevbm.repl.co"
+
 
 -- fcs16
 local fcs16 = {}
@@ -96,24 +122,20 @@ local function doHelp()
   print("")
   print("Commands: ")
   print(" pull     Pull an image from a ccDocker repository")
-  print(" push     Push an image to a ccDocker repository")
+--  print(" push     Push an image to a ccDocker repository")
   print(" build    Build an image.")
   print(" run      Run a command in a new container.")
-  print(" register Register on a ccDocker repository.")
+
   print(" version  Show the ccdocker version.")
   print(" help     Show this help")
 end
 
-local function buildImage(image, name)
+local function buildImage(image)
   if image == nil then
     error("missing param 1 (image)")
   end
 
-  if name == nil then
-    error("missing param 2 (name)")
-  end
-
-  docker.makeImage(docker, image, name)
+  docker.makeImage(docker, image)
 end
 
 local function pullImage(url, image)
@@ -128,48 +150,98 @@ local function pullImage(url, image)
   end
 
   -- use fs.combine to make parsing a bit easier.
-  local url = "https://" .. url
-  local apiv,err = http.get(url.."/api/version")
 
-  if apiv == nil then
-    term.write("FATA", "red")
-    print("[0001] Couldn't communicate with the API.")
+  local f = fs.open('/var/manifest.lson',"r")
 
-    print("Err: "..err);
-    print("API: "..url);
+  if f == nil then
+    logger.FATA("[0000] No Manifest")
 
+    f = fs.open('/var/manifest.lson',"w")
+    local r = http.get('https://raw.githubusercontent.com/CCDocker-Reloaded/packages/main/manifest.lson')
+    if r == nil then
+      logger.fail("[0001] Manifest Download Failed")
+      logger.fail('[0012] Failed to download image')
+      return false
+    end
+    local cont = textutils.unserialise(r.readAll())
+    
+    f.write(textutils.serialise({m = cont ,t = os.epoch("utc") / (1000*60*60*24)}))
+    f:close()
+    r:close()
+    logger.success("[0002] Manifest Downloaded")
+    f = fs.open('/var/manifest.lson',"r")
+    --return false
+  end
+  local manifest = textutils.unserialise(f.readAll())
+  f.close()
+  if (os.epoch("utc") / (1000*60*60*24))-manifest.t >= 14 then
+    logger.WARN("[0003] Old Manifest, rerun to update manifest and download")
+    fs.delete('/var/manifest.lson')
+    logger.fail('[0012] Failed to download image')
     return false
   end
 
+
   -- determine if we were given a flag.
   local v = string.match(image, ".+:([0-9\.a-zA-Z]+)")
-  local s = string.match(image, "([a-zA-Z0-9\-\_\\\/]+)")
+  local s = string.match(image, "(.+):[0-9\.a-zA-Z]+")
 
-  if v == nil or v == "" then
+  if v == nil then
     vh = ""
     v = "latest"
     s = image
-    image = s .. "/" .. v
   else
     vh = v..": "
     image = s .. "/" .. v
   end
 
-  local userFriendlyImage = s..":"..v
+  local user = "dev"
+  local img = s
 
-  print(vh.."Pulling image "..userFriendlyImage)
+  local repo = string.format('https://api.github.com/repos/%s/releases',manifest.m[img])
+  if v == "latest" then
+    repo = repo.."/latest"
+  end
+
+  local r = http.get(repo)
+  if not r then
+    logger.FATA('[0009] API Error')
+    logger.fail('[0012] Failed to download image')
+    return false
+  end
+  local d = textutils.unserializeJSON(r.readAll())
+  local asset = nil
+  local V = v
+  if os.version() == "CraftOS 1.8" then
+    V = v.."_legacyCompat"
+    logger.NOTI('[0010] Legacy Compat Mode')
+  end
+  if v == "latest" then
+    asset = d.assets[1].browser_download_url
+  else
+    for index, value in ipairs(d) do
+
+      if value.tag_name == V  then
+        
+        asset = value.assets[1].browser_download_url
+        break
+      end
+    end
+  end
+  if not asset then
+    logger.FATA("[0004] no releases")
+    logger.fail('[0012] Failed to download image')
+    return false
+  end
+  print(vh.."Pulling image "..tostring(s).."  "..v)
   local fh = fs.open(image, "r")
-  local r,e = http.get(url.."/pull/"..image)
+  --local r = http.get(url.."/pull/"..image)
+  local r = http.get(asset)
 
   -- check if nil before attempting to parse it.
   if r == nil then
-    term.write("FATA", "red")
-    print("[0008] Error: image "..userFriendlyImage.." not found")
-
-    print("Err: "..e)
-    print("Image: "..image)
-    print("Api: "..url)
-
+    logger.FATA("[0005] Error: image "..tostring(s).." not found")
+    logger.fail('[0012] Failed to download image')
     return false
   end
 
@@ -177,38 +249,34 @@ local function pullImage(url, image)
   print("")
 
   -- temporary notice about multiple fs layers not being supported
-  term.write("NOTI", "cyan")
-  print("[0001] Multiple FS layers is not currently supported.")
+  logger.NOTI("[0006] Multiple FS layers is not currently supported.")
 
   -- check and make sure the result was not nil
   local fc = r.readAll()
   if tostring(fc) == "" then
-    term.write("FATA", "red")
-    print("[0004] Error: Image was blank.")
-
+    logger.FATA("[0007] Error: Image was blank.")
+    logger.fail('[0012] Failed to download image')
     return false
   end
 
-  local imageLocation = "/var/ccdocker/"..s.."/"..v.."/docker.fs"
-  if fs.exists("/var/ccdocker") then
+  if not fs.exists("/var/ccdocker") then
     fs.makeDir("/var")
     fs.makeDir("/var/ccdocker")
   end
 
-  if fs.exists(imageLocation) then
-    fs.delete(imageLocation)
+  if fs.exists("/var/ccdocker/"..user.."/"..img.."/"..v.."/docker.fs") then
+    fs.delete("/var/ccdocker/"..user.."/"..img.."/"..v.."/docker.fs")
   end
 
-  local fh = fs.open(imageLocation, "w")
+  local fh = fs.open("/var/ccdocker/"..user.."/"..img.."/"..v.."/docker.fs", "w")
   fh.write(fc)
   fh.close()
 
   local f16h = fcs16.hash(fc)
   print("")
   print("Digest: fcs16:"..f16h)
-  print("Status: Downloaded newer image for "..userFriendlyImage)
-  print("Loc: "..imageLocation)
-
+  print("Status: Downloaded newer image for "..tostring(img)..":"..tostring(v))
+  logger.success("[0011] Downloaded image "..tostring(img)..":"..tostring(v))
   return true
 end
 
@@ -228,31 +296,59 @@ local function pushImage(url, image)
   end
 
   -- use fs.combine to make parsing a bit easier.
-  local url = "https://" .. url
+  local url = "http://" .. fs.combine(tostring(url), "")
   local apiv = http.get(url.."/api/version")
 
   if apiv == nil then
-    term.write("FATA", "red")
-    print("[0001] Couldn't communicate with the API.")
+    logger.FATA("[0001] Couldn't communicate with the API.")
 
     return false
   end
 
+  term.write("Username: ", "lightGray")
+  local un = read()
+
+  term.write("Password: ", "lightGray")
+  local pass = read("*")
+
+  term.write("checking credentials ... ")
+
+
+  -- decode and then close the io stream
+  local rf =  {token=''}
+
+  if rf ~= nil then
+    if rf.token ~= nil then
+      print("OK", "green")
+    else
+      print("FAIL", "red")
+      term.write("FATA", "red")
+      print("[0009] Error: Couldn't authenticate. Wrong password?")
+
+      return false
+    end
+  else
+    print("FAIL", "red")
+    logger.FATA("[0010] Bad API response.")
+
+    return false
+  end
+
+
   term.write("uploading image ... ")
   local fh = fs.open(image, "r")
-  local r = http.post(url.."/push", fh.readAll())
+  local r = http.post(url.."/push",fh.readAll())
 
   -- preparse check
   if r == nil then
     print("FAIL", "red")
-    term.write("FATA", "red")
-    print("[0016] Failed to parse the APIs response")
+    logger.FATA("[0016] Failed to parse the APIs response")
 
     return false
   end
 
   -- parse the response
-  local rj =  json:decode(r.readAll())
+  local rj =  textutils.unserializeJSON(r.readAll())
 
   r.close() -- close the handle
   if rj ~= nil then
@@ -266,18 +362,78 @@ local function pushImage(url, image)
       return false
     end
   else
-    term.write("FATA", "red")
-    print("[0014] Failed to parse the APIs response.")
+    logger.FATA("[0014] Failed to parse the APIs response.")
 
     return false
   end
+
+  term.write("verifying it was uploaded ... ")
+  print("OK", "green")
 
   return true
 end
 
 local function register(url)
-  term.write("FATA", "red")
-  print("[0001] Registration Disabled.")
+  -- use fs.combine to make parsing a bit easier.
+  local url = "http://" .. fs.combine(tostring(url), "")
+  local apiv = http.get(url.."/api/version")
+
+  if apiv == nil then
+    logger.FATA("[0001] Couldn't communicate with the API.")
+
+    return false
+  end
+
+  term.write("Username: ", "lightGray")
+  local un = read()
+
+  term.write("Password: ", "lightGray")
+  local pass = read("*")
+
+  term.write("Confirm Password: ", "lightGray")
+  local charpass = read("*")
+
+  if pass ~= charpass then
+    logger.FATA("[0000] Passwords do not match.")
+
+    return false
+  end
+
+  term.write("attempting to register ... ")
+  local r = http.post(url.."/register", textutils.serialiseJSON({
+    username = un,
+    password = sha256(pass)
+  }))
+
+  print(tostring(r.readAll()))
+
+  local rj =  textutils.unserializeJSON(r.readAll())
+
+  if rj == nil then
+    print("FAIL", "red")
+    logger.FATA("[0015] Failed to parse the APIs response")
+
+    return false
+  end
+
+  r.close() -- close the handle
+  if rj ~= nil then
+    if rj.success == true then
+      print("OK", "green")
+    else
+      print("FAIL", "red")
+      term.write("FATA", "red")
+      print("[" .. (rj.code or '0011') .. "] Error: "..rj.error)
+
+      return false
+    end
+  else
+    print("FAIL", "red")
+    logger.FATA("[0013] Failed to parse the APIs response.")
+
+    return false
+  end
+
 end
 
 local function runImage(server, image)
@@ -287,36 +443,21 @@ local function runImage(server, image)
 
   if fs.exists(image) == false then
     local v = string.match(image, ".+:([0-9\.a-zA-Z]+)")
-    local s = string.match(image, "([a-zA-Z0-9\-\_\\\/]+)")
-    local user = string.match(s, "(.+)/.+")
-    local img = string.match(s, ".+/(.+)")
+    local s = string.match(image, "(.+):[0-9\.a-zA-Z]+")
+    local user = 'dev'
+    local img = s
 
-    if v == nil or v == "" then
-      v = "latest"
-      s = image
-      image = s .. "/" .. v
-    else
-      image = s .. "/" .. v
-    end
-
-    local userFriendlyImage = s .. ':' .. v
-    local imageLocation     = "/var/ccdocker/"..s.."/"..v.."/docker.fs"
-
-    print('img '..s)
-
-    if fs.exists(imageLocation) == false then
-      print("Unable to find image '"..userFriendlyImage.."' locally.")
-
-      print("Not at: '"..imageLocation.."'")
-      if pullImage(server, userFriendlyImage) ~= true then
+    if fs.exists("/var/ccdocker/"..user.."/"..img.."/"..v.."/docker.fs") == false then
+      print("Unable to find image '"..image.."' locally.")
+      if pullImage(server, image) ~= true then
         return false
       end
     else
       term.write("NOTI", "cyan")
-      print("[0002] Image exists locally.")
+      print("[0008] Image exists locally.")
     end
 
-    docker.chroot(docker, imageLocation)
+    docker.chroot(docker, "/var/ccdocker/"..user.."/"..img.."/"..v.."/docker.fs")
   else
     docker.chroot(docker, image)
   end
@@ -338,25 +479,11 @@ function main(...)
   elseif Args[1] == "run" then
     runImage(server, Args[2])
   elseif Args[1] == "version" then
-    local apiv = http.get("https://"..server.."/api/version")
-
-    if apiv == nil then
-      term.write("FATA", "red")
-      print("[0001] Couldn't communicate with the API.")
-
-      return false
-    end
-
-    local rj = json:decode(apiv.readAll())
-
-    print("ccdocker v"..docker.version)
-    print("ccdockerd v"..rj.version)
+    print(docker.version)
   elseif Args[1] == "build" then
-    buildImage(Args[2], Args[3])
+    buildImage(Args[2])
   elseif Args[1] == "register" then
     register(server)
-  elseif Args[1] == "rmi"  then
-    removeImage(server, Args[2])
   elseif Args[1] == "help" then
     doHelp()
     return
