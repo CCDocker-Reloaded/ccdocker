@@ -410,7 +410,7 @@ local currentInput = stdin
 env = {
     -- important functions
     --["print"] = print,
-    ['__Shutdown'] = this.fo.shutdown,
+    ['__Shutdown'] = this.fo.shutdown or false,
     ['_HOST'] = _HOST.." in ccdocker",
     ['load'] = load,
     ["printError"] =  printError,
@@ -430,7 +430,7 @@ env = {
       setfenv(f, env)
       return f() -- execute it
     end,
-    ["loadfile"] = function(path)
+    ["loadfile"] = function(path,ENV)
       if this.fs.exists(this, path) == false then
         error("No such file")
       end
@@ -443,7 +443,7 @@ env = {
 
       fc = this.fs.readAll(this, path)
       f = loadstring(fc, path)
-      setfenv(f, env)
+      setfenv(f, ENV or env)
 
       -- return the object
       return f
@@ -835,6 +835,7 @@ local fhhh = fs.open(fs.combine(dir, "rootfs.ccdocker.fs"), "r")
 this.fo = textutils.unserializeJSON(fhhh.readAll())
 fhhh.close()
 this.fo.shutdown = false
+this.fo.enviroment = 'bios'
 
 -- parse the manifest again.
 for line in fh:lines() do
@@ -925,6 +926,10 @@ for line in fh:lines() do
     print("ccdocker: register entrypoint: "..arg)
   elseif cmd == 'SHUTDOWN' then
     this.fo.shutdown = true
+  elseif cmd == "ENV" then
+    this.fo.enviroment = tostring(arg)
+
+    print("ccdocker: register entrypoint: "..arg)
   end
 end
 
