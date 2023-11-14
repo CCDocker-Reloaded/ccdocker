@@ -3,19 +3,16 @@
 ]]
 
 Sources:Main "cli/ccdocker.lua"
-  :Depends "json"
-  :Depends "base64"
+  :Depends "sha256"
   :Depends "docker"
+  
 
--- Ext apis (not ours)
-Sources:File "ext/json.lua"
-  :Name "json"
-Sources:File "ext/base64.lua"
-  :Name "base64"
 
 -- Libraries
 Sources:File "lib/docker.lua"
   :Name "docker"
+Sources:File "ext/sha256.lua"
+  :Name "sha256"
 
 Tasks:Clean("clean", "build")
 Tasks:Combine("combine", Sources, "build/ccdocker", {"clean"}):Verify()
