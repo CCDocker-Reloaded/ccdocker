@@ -59,3 +59,8 @@ Commands:
 ## License
 
 MIT
+
+
+
+## Commit Notes
+`gh release create title build/ccdocker`
