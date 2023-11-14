@@ -3,6 +3,7 @@
 ]]
 
 Sources:Main "cli/ccdocker.lua"
+  :Depends "logger"
   :Depends "sha256"
   :Depends "docker"
   
@@ -11,6 +12,8 @@ Sources:Main "cli/ccdocker.lua"
 -- Libraries
 Sources:File "lib/docker.lua"
   :Name "docker"
+Sources:File "lib/logger.lua"
+  :Name "logger"
 Sources:File "ext/sha256.lua"
   :Name "sha256"
 
