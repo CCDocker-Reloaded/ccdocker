@@ -85,5 +85,18 @@ if c == "fail" then
   
   PrimeUI.keyAction(keys.enter, "done")
   PrimeUI.run()
+else
+    PrimeUI.clear()
+    PrimeUI.label(term.current(), 3, 2, t.." Installer")
+    PrimeUI.horizontalLine(term.current(), 3, 3, #(t.." Installer") + 2)
+    PrimeUI.label(term.current(), 3, 4, "CCDocker-Reloaded/ccdocker")
+    PrimeUI.borderBox(term.current(), 4, 6, w-8, h-8)
+    local scroller = PrimeUI.scrollBox(term.current(), 4, 6, w-8, h-8, 9000, true, true)
+    PrimeUI.drawText(scroller, "Successsfully downloaded "..t, true)
+    
+    PrimeUI.button(term.current(), 3, h-1, "done", "done")
+    
+    PrimeUI.keyAction(keys.enter, "done")
+    PrimeUI.run()
 end
 PrimeUI.clear()
